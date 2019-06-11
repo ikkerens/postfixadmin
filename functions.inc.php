@@ -1464,30 +1464,14 @@ EOF;
  * @return \PDO
  */
 function db_connect() {
-    list($link, $_) = db_connect_with_errors();
-    unset($_);
-
-    if (!$link instanceof PDO) {
-        throw new Exception("Database connection failed");
-    }
-
-    return $link;
-}
-
-/**
- * @param bool $ignore_errors
- * @return array [PDO link | false, string $error_text];
- */
-function db_connect_with_errors() {
     global $CONF;
-    global $DEBUG_TEXT;
 
-    $error_text = '';
-
+    /* some attempt at not reopening an existing connection */
     static $link;
     if (isset($link) && $link) {
-        return array($link, $error_text);
+        return $link;
     }
+
     $link = false;
 
     $options = array(
@@ -1521,17 +1505,17 @@ function db_connect_with_errors() {
 
         if (!file_exists($db)) {
             $error_text = 'SQLite database missing: '. $db;
-            return array($link, $error_text);
+            throw new Exception($error_text);
         }
 
         if (!is_writeable($db)) {
             $error_text = 'SQLite database not writeable: '. $db;
-            return array($link, $error_text);
+            throw new Exception($error_text);
         }
 
         if (!is_writeable(dirname($db))) {
             $error_text = 'The directory the SQLite database is in is not writeable: '. dirname($db);
-            return array($link, $error_text);
+            throw new Exception($error_text);
         }
 
         $dsn = "sqlite:{$db}";
@@ -1545,23 +1529,19 @@ function db_connect_with_errors() {
         die("<p style='color: red'>FATAL Error:<br />Invalid \$CONF['database_type']! Please fix your config.inc.php!</p>");
     }
 
-    try {
-        if ($username_password) {
-            $link = new PDO($dsn, Config::read_string('database_user'), Config::read_string('database_password'), $options);
-        } else {
-            $link = new PDO($dsn, null, null, $options);
-        }
-
-        if (!empty($queries)) {
-            foreach ($queries as $q) {
-                $link->exec($q);
-            }
-        }
-    } catch (PDOException $e) {
-        $error_text = 'PDO exception: '. $e->getMessage();
+    if ($username_password) {
+        $link = new PDO($dsn, Config::read_string('database_user'), Config::read_string('database_password'), $options);
+    } else {
+        $link = new PDO($dsn, null, null, $options);
     }
 
-    return array($link, $error_text);
+    if (!empty($queries)) {
+        foreach ($queries as $q) {
+            $link->exec($q);
+        }
+    }
+
+    return $link;
 }
 
 /**
@@ -1832,18 +1812,6 @@ function db_update($table, $where_col, $where_value, $values, $timestamp = array
         } else {
             $set[] = " $key = :$key ";
             $pvalues[$key] = $value;
-        }
-    }
-
-    /* @todo this needs refactoring/moving out from here */
-    if (Config::bool('password_expiration')) {
-        if ($table == 'mailbox' && preg_match('/@/', $where_value)) {
-            $email = $where_value;
-            $domain_dirty = explode('@',$email)[1];
-            $domain = substr($domain_dirty, 0, -1);
-            $password_expiration_value = get_password_expiration_value($domain);
-            $key = 'password_expiry';
-            $set[] = " $key = now() + interval {$password_expiration_value} day";
         }
     }
 
