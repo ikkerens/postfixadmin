@@ -8,7 +8,6 @@
  *
  * Further details on the project are available at http://postfixadmin.sf.net
  *
- * @version $Id$
  * @license GNU GPL v2 or later.
  *
  * File: functions.inc.php
@@ -333,7 +332,7 @@ function check_email($email) {
  * $sql = "SELECT * FROM foo WHERE x = '" . escape_string('fish') . "'";
  * </code>
  *
- * @param int|string $string parameters to escape
+ * @param int|string $string_or_int parameters to escape
  * @return string cleaned data, suitable for use within an SQL statement.
  */
 function escape_string($string_or_int) {
@@ -352,8 +351,8 @@ function escape_string($string_or_int) {
  *  $param = safeget('param', 'default')
  *
  * @param string $param parameter name.
- * @param string $default (optional) - default value if key is not set.
- * @return string
+ * @param string|array $default (optional) - default value if key is not set.
+ * @return string|array
  */
 function safeget($param, $default = "") {
     $retval = $default;
@@ -479,11 +478,11 @@ function pacol($allow_editing, $display_in_form, $display_in_list, $type, $PALAN
 function get_domain_properties($domain) {
     $handler = new DomainHandler();
     if (!$handler->init($domain)) {
-        die("Error: " . join("\n", $handler->errormsg));
+        throw new Exception("Error: " . join("\n", $handler->errormsg));
     }
 
     if (!$handler->view()) {
-        die("Error: " . join("\n", $handler->errormsg));
+        throw new Exception("Error: " . join("\n", $handler->errormsg));
     }
 
     $result = $handler->result();
@@ -494,10 +493,9 @@ function get_domain_properties($domain) {
 /**
  * create_page_browser
  * Action: Get page browser for a long list of mailboxes, aliases etc.
- * Call: $pagebrowser = create_page_browser('table.field', 'query', 50)   # replaces $param = $_GET['param']
  *
- * @param string $idxfield - database field name to use as title
- * @param string $querypart - core part of the query (starting at "FROM")
+ * @param string $idxfield - database field name to use as title e.g. alias.address
+ * @param string $querypart - core part of the query (starting at "FROM") e.g. FROM alias WHERE address like ...
  * @return array
  */
 function create_page_browser($idxfield, $querypart, $sql_params = []) {
@@ -509,7 +507,7 @@ function create_page_browser($idxfield, $querypart, $sql_params = []) {
     $count_results = 0;
 
     if ($page_size < 2) { # will break the page browser
-        die('$CONF[\'page_size\'] must be 2 or more!');
+        throw new Exception('$CONF[\'page_size\'] must be 2 or more!');
     }
 
     # get number of rows
@@ -549,9 +547,14 @@ function create_page_browser($idxfield, $querypart, $sql_params = []) {
     }
 
     if (db_sqlite()) {
+        $end = $idxfield;
+        if (strpos($idxfield, '.') !== false) {
+            $bits = explode('.', $idxfield);
+            $end = $bits[1];
+        }
         $query = "
             WITH idx AS (SELECT * $querypart)
-                SELECT $idxfield AS label, (SELECT (COUNT(*) - 1) FROM idx t1 WHERE t1.$idxfield <= t2.$idxfield) AS row
+                SELECT $end AS label, (SELECT (COUNT(*) - 1) FROM idx t1 WHERE t1.$end <= t2.$end ) AS row
                 FROM idx t2
                 WHERE (row % $page_size) IN (0,$page_size_zerobase) OR row = $count_results";
     }
@@ -564,12 +567,11 @@ function create_page_browser($idxfield, $querypart, $sql_params = []) {
     # afterwards: DROP SEQUENCE foo
 
     $result = db_query_all($query, $sql_params);
-    foreach ($result as $k => $row) {
+    for ($k = 0; $k < count($result); $k+=2) {
         if (isset($result[$k + 1])) {
-            $row2 = $result[$k + 1];
-            $label = substr($row['label'], 0, $label_len) . '-' . substr($row2['label'], 0, $label_len);
+            $label = substr($result[$k]['label'], 0, $label_len) . '-' . substr($result[$k+1]['label'], 0, $label_len);
         } else {
-            $label = substr($row['label'], 0, $label_len);
+            $label = substr($result[$k]['label'], 0, $label_len);
         }
         $pagebrowser[] = $label;
     }
@@ -660,11 +662,6 @@ function list_domains_for_admin($username) {
     $result = db_query_all($query, $pvalues);
 
     return array_column($result, 'domain');
-}
-
-
-if (!function_exists('array_column')) {
-    require_once(dirname(__FILE__) . '/lib/array_column.php');
 }
 
 /**
@@ -959,7 +956,7 @@ function _pacrypt_authlib($pw, $pw_db) {
     } elseif (stripos($flavor, 'SHA') === 0) {
         $password = '{' . $flavor . '}' . base64_encode(sha1($pw, true));
     } else {
-        die("authlib_default_flavor '" . $flavor . "' unknown. Valid flavors are 'md5raw', 'md5', 'SHA' and 'crypt'");
+        throw new Exception("authlib_default_flavor '" . $flavor . "' unknown. Valid flavors are 'md5raw', 'md5', 'SHA' and 'crypt'");
     }
     return $password;
 }
@@ -981,16 +978,12 @@ function _pacrypt_dovecot($pw, $pw_db = '') {
         $method = $method_matches[1];
     }
     if (! preg_match("/^[A-Z0-9.-]+$/", $method)) {
-        die("invalid dovecot encryption method");
+        throw new Exception("invalid dovecot encryption method");
     }
-
-    # TODO: check against a fixed list?
-    # if (strtolower($method) == 'md5-crypt') die("\$CONF['encrypt'] = 'dovecot:md5-crypt' will not work because dovecotpw generates a random salt each time. Please use \$CONF['encrypt'] = 'md5crypt' instead.");
-    # $crypt_method = preg_match ("/.*-CRYPT$/", $method);
 
     # digest-md5 hashes include the username - until someone implements it, let's declare it as unsupported
     if (strtolower($method) == 'digest-md5') {
-        die("Sorry, \$CONF['encrypt'] = 'dovecot:digest-md5' is not supported by PostfixAdmin.");
+        throw new Exception("Sorry, \$CONF['encrypt'] = 'dovecot:digest-md5' is not supported by PostfixAdmin.");
     }
     # TODO: add -u option for those hashes, or for everything that is salted (-u was available before dovecot 2.1 -> no problem with backward compatibility )
 
@@ -1017,7 +1010,7 @@ function _pacrypt_dovecot($pw, $pw_db = '') {
     $pipe = proc_open("$dovecotpw '-s' $method$dovepasstest", $spec, $pipes);
 
     if (!$pipe) {
-        die("can't proc_open $dovecotpw");
+        throw new Exception("can't proc_open $dovecotpw");
     }
 
     // use dovecot's stdin, it uses getpass() twice (except when using -t)
@@ -1036,7 +1029,7 @@ function _pacrypt_dovecot($pw, $pw_db = '') {
         if (!preg_match('/^\{' . $method . '\}/', $password)) {
             $stderr_output = stream_get_contents($pipes[2]);
             error_log('dovecotpw password encryption failed. STDERR output: '. $stderr_output);
-            die("can't encrypt password with dovecotpw, see error log for details");
+            throw new Exception("can't encrypt password with dovecotpw, see error log for details");
         }
     } else {
         if (!preg_match('(verified)', $password)) {
@@ -1130,7 +1123,7 @@ function _php_crypt_generate_crypt_salt($hash_type='SHA512', $hash_difficulty=nu
         } else {
             $cost = (int)$hash_difficulty;
             if ($cost < 4 || $cost > 31) {
-                die('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 4-31');
+                throw new Exception('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 4-31');
             }
         }
         if (version_compare(PHP_VERSION, '5.3.7') >= 0) {
@@ -1149,7 +1142,7 @@ function _php_crypt_generate_crypt_salt($hash_type='SHA512', $hash_difficulty=nu
         } else {
             $rounds = (int)$hash_difficulty;
             if ($rounds < 1000 || $rounds > 999999999) {
-                die('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 1000-999999999');
+                throw new Exception('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 1000-999999999');
             }
         }
         $salt = _php_crypt_random_string($alphabet, $length);
@@ -1166,7 +1159,7 @@ function _php_crypt_generate_crypt_salt($hash_type='SHA512', $hash_difficulty=nu
         } else {
             $rounds = (int)$hash_difficulty;
             if ($rounds < 1000 || $rounds > 999999999) {
-                die('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 1000-999999999');
+                throw new Exception('invalid encrypt difficulty setting "' . $hash_difficulty . '" for ' . $hash_type . ', the valid range is 1000-999999999');
             }
         }
         $salt = _php_crypt_random_string($alphabet, $length);
@@ -1176,7 +1169,7 @@ function _php_crypt_generate_crypt_salt($hash_type='SHA512', $hash_difficulty=nu
         return sprintf('$%s$%s%s', $algorithm, $rounds, $salt);
 
     default:
-        die("unknown hash type: '$hash_type'");
+        throw new Exception("unknown hash type: '$hash_type'");
     }
 }
 
@@ -1232,7 +1225,7 @@ function pacrypt($pw, $pw_db="") {
         return _pacrypt_php_crypt($pw, $pw_db);
     }
 
-    die('unknown/invalid $CONF["encrypt"] setting: ' . $CONF['encrypt']);
+    throw new Exception('unknown/invalid $CONF["encrypt"] setting: ' . $CONF['encrypt']);
 }
 
 /**
@@ -1357,11 +1350,12 @@ function to64($v, $n) {
  * @param String - To:
  * @param String - From:
  * @param String - Subject: (if called with 4 parameters) or full mail body (if called with 3 parameters)
+ * @param String (optional) - Password
  * @param String (optional, but recommended) - mail body
  * @return bool - true on success, otherwise false
  * TODO: Replace this with something decent like PEAR::Mail or Zend_Mail.
  */
-function smtp_mail($to, $from, $data, $body = "") {
+function smtp_mail($to, $from, $data, $password = "", $body = "") {
     global $CONF;
     $smtpd_server = $CONF['smtp_server'];
     $smtpd_port = $CONF['smtp_port'];
@@ -1397,8 +1391,28 @@ function smtp_mail($to, $from, $data, $body = "") {
         return false;
     } else {
         smtp_get_response($fh);
+
+        if (Config::bool('smtp_sendmail_tls')) {
+            fputs($fh, "STARTTLS\r\n");
+            smtp_get_response($fh);
+
+            stream_set_blocking($fh, true);
+            stream_socket_enable_crypto($fh, true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT);
+            stream_set_blocking($fh, true);
+        }
+
         fputs($fh, "EHLO $smtp_server\r\n");
         smtp_get_response($fh);
+
+        if (!empty($password)) {
+            fputs($fh,"AUTH LOGIN\r\n");
+            smtp_get_response($fh);
+            fputs($fh, base64_encode($from) . "\r\n");
+            smtp_get_response($fh);
+            fputs($fh, base64_encode($password) . "\r\n");
+            smtp_get_response($fh);
+        }
+
         fputs($fh, "MAIL FROM:<$from>\r\n");
         smtp_get_response($fh);
         fputs($fh, "RCPT TO:<$to>\r\n");
@@ -1427,6 +1441,16 @@ function smtp_get_admin_email() {
     } else {
         return authentication_get_username();
     }
+}
+
+/**
+ * smtp_get_admin_password
+ * Action: Get smtp password for admin email
+ * Call: smtp_get_admin_password
+ * @return string - admin smtp password
+ */
+function smtp_get_admin_password() {
+    return Config::read_string('admin_smtp_password');
 }
 
 
@@ -1526,7 +1550,7 @@ function db_connect() {
         }
         $dsn = "pgsql:host={$CONF['database_host']};port={$CONF['database_port']};dbname={$CONF['database_name']};options='-c client_encoding=utf8'";
     } else {
-        die("<p style='color: red'>FATAL Error:<br />Invalid \$CONF['database_type']! Please fix your config.inc.php!</p>");
+        throw new Exception("<p style='color: red'>FATAL Error:<br />Invalid \$CONF['database_type']! Please fix your config.inc.php!</p>");
     }
 
     if ($username_password) {
@@ -1547,13 +1571,13 @@ function db_connect() {
 /**
  * Returns the appropriate boolean value for the database.
  *
- * @param bool $bool
+ * @param bool|string $bool
  * @return string|int as appropriate for underlying db platform
  */
 function db_get_boolean($bool) {
     if (! (is_bool($bool) || $bool == '0' || $bool == '1')) {
         error_log("Invalid usage of 'db_get_boolean($bool)'");
-        die("Invalid usage of 'db_get_boolean($bool)'");
+        throw new Exception("Invalid usage of 'db_get_boolean($bool)'");
     }
 
     if (db_pgsql()) {
@@ -1568,7 +1592,7 @@ function db_get_boolean($bool) {
         }
         return 0;
     } else {
-        die('Unknown value in $CONF[database_type]');
+        throw new Exception('Unknown value in $CONF[database_type]');
     }
 }
 
@@ -1703,8 +1727,11 @@ function db_query($sql, array $values = array(), $ignore_errors = false) {
     } catch (PDOException $e) {
         $error_text = "Invalid query: " . $e->getMessage() .  " caused by " . $sql ;
         error_log($error_text);
+        if (defined('PHPUNIT_TEST')) {
+            throw new Exception("SQL query failed: {{{$sql}}} with " . json_encode($values) . ". Error message: " . $e->getMessage());
+        }
         if (!$ignore_errors) {
-            die("DEBUG INFORMATION: " . $e->getMessage() . "<br/> Check your error_log for the failed query");
+            throw new Exception("DEBUG INFORMATION: " . $e->getMessage() . "<br/> Check your error_log for the failed query");
         }
     }
 
@@ -1747,7 +1774,7 @@ function db_delete($table, $where, $delete, $additionalwhere='') {
  * @param string - table name
  * @param array $values - key/value map of data to insert into the table.
  * @param array $timestamp (optional) - array of fields to set to now() - default: array('created', 'modified')
- * @param boolean $throw_errors
+ * @param boolean $throw_exceptions
  * @return int - number of inserted rows
  */
 function db_insert($table, array $values, $timestamp = array('created', 'modified'), $throw_exceptions = false) {
@@ -1840,7 +1867,7 @@ function db_log($domain, $action, $data) {
     $username = authentication_get_username();
 
     if (Config::Lang("pViewlog_action_$action") == '') {
-        die("Invalid log action : $action");   // could do with something better?
+        throw new Exception("Invalid log action : $action");   // could do with something better?
     }
 
 
@@ -1883,15 +1910,9 @@ function db_in_clause($field, array $values) {
  *                           Note: the $searchmode operator will only be used if a $condition for that field is set.
  *                                 This also means you'll need to set a (dummy) condition for NULL and NOTNULL.
  */
-function db_where_clause($condition, $struct, $additional_raw_where = '', $searchmode = array()) {
-    if (!is_array($condition)) {
-        die('db_where_cond: parameter $cond is not an array!');
-    } elseif (!is_array($searchmode)) {
-        die('db_where_cond: parameter $searchmode is not an array!');
-    } elseif (count($condition) == 0 && trim($additional_raw_where) == '') {
-        die("db_where_cond: parameter is an empty array!"); # die() might sound harsh, but can prevent information leaks
-    } elseif (!is_array($struct)) {
-        die('db_where_cond: parameter $struct is not an array!');
+function db_where_clause(array $condition, array $struct, $additional_raw_where = '', array $searchmode = array()) {
+    if (count($condition) == 0 && trim($additional_raw_where) == '') {
+        throw new Exception("db_where_cond: parameter is an empty array!");
     }
 
     $allowed_operators = array('<', '>', '>=', '<=', '=', '!=', '<>', 'CONT', 'LIKE', 'NULL', 'NOTNULL');
@@ -1914,7 +1935,7 @@ function db_where_clause($condition, $struct, $additional_raw_where = '', $searc
                     $operator = ' LIKE '; # add spaces
                 }
             } else {
-                die('db_where_clause: Invalid searchmode for ' . $field);
+                throw new Exception('db_where_clause: Invalid searchmode for ' . $field);
             }
         }
 
@@ -1981,7 +2002,7 @@ function table_by_key($table_key) {
 /**
  * check if the database layout is up to date
  * returns the current 'version' value from the config table
- * if $error_out is True (default), die() with a message that recommends to run setup.php.
+ * if $error_out is True (default), exit(1) with a message that recommends to run setup.php.
  * @param bool $error_out
  * @return int
  */
@@ -2088,7 +2109,7 @@ function gen_show_status($show_alias) {
 
     // Vacation CHECK
     if ( $CONF['show_vacation'] == 'YES' ) {
-        $stat_result = db_query_one("SELECT * FROM ". $CONF['database_tables']['vacation'] ." WHERE email = ? AND active = ? ", array($show_alias, db_get_boolean(true) )) ;
+        $stat_result = db_query_one("SELECT * FROM ". table_by_key('vacation') ." WHERE email = ? AND active = ? ", array($show_alias, db_get_boolean(true) )) ;
         if (!empty($stat_result)) {
             $stat_string .= "<span style='background-color:" . $CONF['show_vacation_color'] . "'>" . $CONF['show_status_text'] . "</span>&nbsp;";
         } else {
@@ -2099,7 +2120,7 @@ function gen_show_status($show_alias) {
     // Disabled CHECK
     if ( $CONF['show_disabled'] == 'YES' ) {
         $stat_result = db_query_one(
-            "SELECT * FROM ". $CONF['database_tables']['mailbox'] ." WHERE username = ? AND active = ?",
+            "SELECT * FROM ". table_by_key('mailbox') ." WHERE username = ? AND active = ?",
             array($show_alias, db_get_boolean(false))
         );
         if (!empty($stat_result)) {
@@ -2116,7 +2137,7 @@ function gen_show_status($show_alias) {
             $now = "datetime('now')";
         }
 
-        $stat_result = db_query_one("SELECT * FROM ". $CONF['database_tables']['mailbox'] ." WHERE username = ? AND password_expiry <= ? AND active = ?", array( $show_alias , $now , db_get_boolean(true) ));
+        $stat_result = db_query_one("SELECT * FROM ". table_by_key('mailbox') ." WHERE username = ? AND password_expiry <= ? AND active = ?", array( $show_alias , $now , db_get_boolean(true) ));
 
         if (!empty($stat_result)) {
             $stat_string .= "<span style='background-color:" . $CONF['show_expired_color'] . "'>" . $CONF['show_status_text'] . "</span>&nbsp;";

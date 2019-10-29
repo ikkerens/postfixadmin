@@ -109,7 +109,7 @@ final class Config {
      * Configure::read('Name.key'); will return only the value of Configure::Name[key]
      *
      * @param string $var Variable to obtain
-     * @return array|string|null string value of Configure::$var
+     * @return array|string|null|bool some value
      * @access public
      */
     public static function read($var) {
@@ -199,9 +199,10 @@ final class Config {
             return false;
         }
 
-        if (strtoupper($value) == 'YES') { # YES
+        $value = strtoupper($value);
+        if ($value == 'YES' || $value == 'TRUE') { # YES
             return true;
-        } elseif (strtoupper($value) == 'NO') { # NO
+        } elseif ($value == 'NO' || $value == 'FALSE') { # NO
             return false;
         } else { # unknown value
             # show and log error message on unknown value

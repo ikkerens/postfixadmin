@@ -18,7 +18,9 @@ class MailboxHandler extends PFAHandler {
             $reset_by_sms = 1;
         }
 
-        $this->struct=array(
+        $show_password_fields = (int) !Config::bool('generate_password');
+
+        $this->struct = array(
             # field name                allow       display in...   type    $PALANG label                     $PALANG description                 default / options / ...
             #                           editing?    form    list
             'username'         => pacol($this->new, 1,      1,      'mail', 'pEdit_mailbox_username'        , ''                                , '' ),
@@ -28,8 +30,8 @@ class MailboxHandler extends PFAHandler {
             # TODO: maildir: display in list is needed to include maildir in SQL result (for post_edit hook)
             # TODO:          (not a perfect solution, but works for now - maybe we need a separate "include in SELECT query" field?)
             'maildir'          => pacol($this->new, 0,      1,      'text', ''                              , ''                                , '' ),
-            'password'         => pacol(1,          1,      0,      'pass', 'password'                      , 'pCreate_mailbox_password_text'   , '' ),
-            'password2'        => pacol(1,          1,      0,      'pass', 'password_again'                , ''                                 , '',
+            'password'         => pacol(1,          $show_password_fields,      0,      'pass', 'password'                      , 'pCreate_mailbox_password_text'   , '' ),
+            'password2'        => pacol(1,          $show_password_fields,      0,      'pass', 'password_again'                , ''                                 , '',
                 /*options*/ array(),
                 /*not_in_db*/ 0,
                 /*dont_write_to_db*/ 1,
@@ -255,9 +257,8 @@ class MailboxHandler extends PFAHandler {
             return false;
         }
 
-
-        if (!empty($this->values['password']) && !empty($this->values['password2']) && $this->values['password'] == $this->values['password2']) {
-            // some default value, meaningless unless the server is configured to check it.
+        if (!empty($this->values['password'])) {
+            // provide some default value to keep MySQL etc happy.
             $this->values['password_expiry'] = date('Y-m-d H:i', strtotime("+365 days"));
             if (Config::bool('password_expiration')) {
                 $domain_dirty = $this->domain_from_id();
@@ -462,7 +463,7 @@ class MailboxHandler extends PFAHandler {
         $fSubject = Config::lang('pSendmail_subject_text');
         $fBody = Config::read('welcome_text');
 
-        if (!smtp_mail($fTo, $fFrom, $fSubject, $fBody)) {
+        if (!smtp_mail($fTo, $fFrom, $fSubject, smtp_get_admin_password(), $fBody)) {
             $this->errormsg[] = Config::lang_f('pSendmail_result_error', $this->id);
             return false;
         }
@@ -560,10 +561,10 @@ class MailboxHandler extends PFAHandler {
      */
     protected function mailbox_post_script() {
         if ($this->new) {
-            $cmd = Config::read('mailbox_postcreation_script');
+            $cmd = Config::read_string('mailbox_postcreation_script');
             $warnmsg = Config::Lang('mailbox_postcreate_failed');
         } else {
-            $cmd = Config::read('mailbox_postedit_script');
+            $cmd = Config::read_string('mailbox_postedit_script');
             $warnmsg = Config::Lang('mailbox_postedit_failed');
         }
 
@@ -607,7 +608,7 @@ class MailboxHandler extends PFAHandler {
      * also adds a detailed error message to $this->errormsg[]
      */
     protected function mailbox_postdeletion() {
-        $cmd = Config::read('mailbox_postdeletion_script');
+        $cmd = Config::read_string('mailbox_postdeletion_script');
 
         if (empty($cmd)) {
             return true;
@@ -658,6 +659,11 @@ class MailboxHandler extends PFAHandler {
         $create_mailbox_subdirs = Config::read('create_mailbox_subdirs');
         if (empty($create_mailbox_subdirs)) {
             return true;
+        }
+
+        if (!function_exists('imap_open')) {
+            trigger_error('imap_open function not present; cannot create_mailbox_subdirs');
+            return false;
         }
 
         if (!is_array($create_mailbox_subdirs)) {
@@ -729,8 +735,8 @@ class MailboxHandler extends PFAHandler {
 
     /**
      * @return boolean true on success; false on failure
+     * @param string $new_password
      * @param string $old_password
-     * @param string $new_passwords
      * @param bool $match = true
      *
      * All passwords need to be plain text; they'll be hashed appropriately

@@ -45,17 +45,17 @@ function sendCodebyEmail($to, $username, $code) {
 
     $url = $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . '/password-change.php?username=' . urlencode($username) . '&code=' . $code;
 
-    return smtp_mail($to, Config::read('admin_email'), Config::Lang('pPassword_welcome'), Config::lang_f('pPassword_recovery_email_body', $url));
+    return smtp_mail($to, Config::read('admin_email'), Config::Lang('pPassword_welcome'), Config::read('admin_smtp_password'), Config::lang_f('pPassword_recovery_email_body', $url));
 }
 
 function sendCodebySMS($to, $username, $code) {
     $text = Config::lang_f('pPassword_recovery_sms_body', $code);
 
-    if (Config::read('sms_send_function') && is_callable(Config::read('sms_send_function'))) {
-        $result = call_user_func(Config::read('sms_send_function'), $to, $text);
+    $function = Config::read('sms_send_function');
+    if ($function && is_callable($function)) {
+        $result = $function($to, $text);
         return $result !== false;
     }
-
     return false;
 }
 

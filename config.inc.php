@@ -8,7 +8,6 @@
  * 
  * Further details on the project are available at http://postfixadmin.sf.net 
  * 
- * @version $Id$ 
  * @license GNU GPL v2 or later. 
  * 
  * File: config.inc.php
@@ -150,6 +149,12 @@ $CONF['database_tables'] = array (
 // Leave blank to send email from the logged-in Admin's Email address.
 $CONF['admin_email'] = '';
 
+// Define the smtp password for admin_email.
+// This will be used to send emails from to create mailboxes and
+// from Send Email / Broadcast message pages.
+// Leave blank to send emails without authentification
+$CONF['admin_smtp_password'] = '';
+
 // Site admin name
 // This will be used as signature in notification messages
 $CONF['admin_name'] = 'Postmaster';
@@ -164,6 +169,9 @@ $CONF['smtp_port'] = '25';
 // Hostname (FQDN) of the server hosting Postfix Admin
 // Used in the HELO when sending emails from Postfix Admin
 $CONF['smtp_client'] = '';
+
+// Set 'YES' to use TLS when sending emails.
+$CONF['smtp_sendmail_tls'] = 'NO';
 
 // Encrypt
 // In what way do you want the passwords to be crypted?
@@ -594,7 +602,7 @@ $CONF['domain_postdeletion_script'] = '';
 // Will not work with POP3.
 // If you define create_mailbox_subdirs, then the
 // create_mailbox_subdirs_host must also be defined.
-//
+// Note: requires imap extension within PHP
 // $CONF['create_mailbox_subdirs']=array('Spam');
 $CONF['create_mailbox_subdirs'] = array();
 $CONF['create_mailbox_subdirs_host']='localhost';
@@ -662,7 +670,8 @@ function x_send_sms_clickatell($to, $message) {
 
 // Theme Config
 $CONF['theme'] = 'default';
-// Specify your own logo and CSS file
+// Specify your own favicon, logo and CSS file
+$CONF['theme_favicon'] = 'images/favicon.ico';
 $CONF['theme_logo'] = 'images/logo-default.png';
 $CONF['theme_css'] = 'css/default.css';
 // If you want to customize some styles without editing the $CONF['theme_css'] file,
@@ -680,7 +689,7 @@ $CONF['xmlrpc_enabled'] = false;
 //More details in README.password_expiration
 $CONF['password_expiration'] = 'YES';
 
-// If you want to keep most settings at default values and/or want to ensure 
+// If you want to keep most settings at default values and/or want to ensure
 // that future updates work without problems, you can use a separate config 
 // file (config.local.php) instead of editing this file and override some
 // settings there.
